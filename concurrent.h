@@ -76,10 +76,10 @@ struct mutex_print
 /// the original codes simulated/spicy
 /// {{{
 
-using ImageItem = vis::ImageItem;
-using IdlFaceRequest = vis::IdlFaceRequest;
-using IdlFaceResponse = vis::IdlFaceResponse ;
-using FeatureRequest = vis::FeatureRequest; 
+//using ImageItem = vis::ImageItem;
+//using IdlFaceRequest = vis::IdlFaceRequest;
+//using IdlFaceResponse = vis::IdlFaceResponse ;
+//using FeatureRequest = vis::FeatureRequest; 
 /*
 struct ImageItem
 {
@@ -133,28 +133,38 @@ struct shared_fields
         : _m_count(0)
     {
     }
+	~shared_fields()
+	{
+		TRACE2("~~~~~");
+	}
     std::mutex _mutex_task;
     std::condition_variable _m_tasks_finished;
-    std::atomic_long _m_count
+	std::atomic_long _m_count;
     void wait()
     {
+		TRACE2("waiting...");
         std::unique_lock<std::mutex> locker(_mutex_task);
         _m_tasks_finished.wait(locker);
+		TRACE2("waited. done");
     }
     void set_count(size_t const& count)
     {
         _m_count = count;
     }
-    int dec() const
+    int dec()
     {
         return --_m_count;
     }
+	void notify_all()
+	{
+		_m_tasks_finished.notify_all();
+	}
 };
 using extract_feature_d = std::function<void*(void*)>;
 struct thread_task_t
 {
     thread_task_t(
-        shared_fields& shared,
+        shared_fields* shared,
         extract_feature_d const& extract_feature,
         void* param
         )
@@ -165,11 +175,11 @@ struct thread_task_t
     }
     ~thread_task_t()
     {
-        //TRACE("~~~~~~~ thread_task_t %p\n",this);
+        //TRACE2("~~~~~~~ thread_task_t %p\n",this);
     }
 
     /// protect all the task fields for all the tasks
-    shared_fields& _m_shared_fields;
+    shared_fields* _m_shared_fields;
     extract_feature_d _m_extract_feature;
     void* _m_param;
 
@@ -182,15 +192,15 @@ struct thread_task_t
         {
             //TRACE2("000000000000\n");
             //std::unique_lock<std::mutex> locker(_mutex_task);
-            if (_m_shared_fields.dec() <= 0)
+            if (_m_shared_fields->dec() <= 0)
             {
                 /// this will be the last thread and task's item to deal with the task
                 /// there will be many thread calling this function, 
                 /// but only one have the priviliage to notify the caller thread,
                 /// namely just notify once by who are at run here
                 //TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-                _m_tasks_finished.notify_all();
-                //TRACE (">>>>>>>>>---------notify all\n");
+				_m_shared_fields->notify_all();
+                TRACE2 (">>>>>>>>>---------notify all\n");
                 return true;
             }
         }
@@ -254,8 +264,8 @@ struct thread_process
     }
 };
 
-using get_next_queue_d = function<thread_queue_t&()>;
-struct concurrent_face_actions
+using get_next_queue_d = std::function<thread_queue_t&()>;
+struct concurrent_actions
 {
     get_next_queue_d next_queue;
 
@@ -263,7 +273,7 @@ struct concurrent_face_actions
     std::vector<thread_task_t> tasks;
     extract_feature_d extract_feature;
 
-    concurrent_face_actions(get_next_queue_d const& next,extract_feature_d const& extract,size_t const& task_reserve_count)
+	concurrent_actions(get_next_queue_d const& next,extract_feature_d const& extract,size_t const& task_reserve_count)
         : next_queue(next)
         , extract_feature(extract) 
     {
@@ -272,7 +282,7 @@ struct concurrent_face_actions
 
     void add_task(void* param)
     {
-        tasks.emplace_back(shared, extract_feature, param);
+        tasks.emplace_back(&shared, extract_feature, param);
     }
     void add_done()
     {
@@ -284,7 +294,7 @@ struct concurrent_face_actions
         for (auto i : tasks)
         {
             thread_queue_t& queue = next_queue();
-            queue.add_task(&*i);
+            queue.add_task(&i);
         }
         //auto end = std::chrono::steady_clock::now();
         //auto end = std::chrono::high_resolution_clock::now();
@@ -294,7 +304,7 @@ struct concurrent_face_actions
     }
     void wait()
     {
-        shared.wait()
+		shared.wait();
         //TRACE(">>>>>>>>>>>> --------- received finished flag\n");
     }
 };
