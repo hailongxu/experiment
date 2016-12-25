@@ -1,5 +1,6 @@
 .VC.db
 .VC.opendb
+.vs
 Debug/
 ipch/
 .vcxproj.filters

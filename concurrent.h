@@ -127,6 +127,73 @@ int multil_match(int, std::vector<std::string>& vec_fea, IdlFaceResponse& respon
 
 //// }}}
 
+
+using run_d = std::function<void(void*)>;
+
+template <typename thread_task_t>
+struct thread_queue_tt
+{
+	std::mutex m;
+	std::condition_variable cond;
+	std::list<thread_task_t*> q;
+	void add_tasks(thread_task_t* t, size_t n)
+	{
+		//TRACE("tasks added\n");
+		std::unique_lock<std::mutex> locker(m);
+		for (size_t i = 0; i<n; i++)
+			q.push_back(t + i);
+		cond.notify_all();
+	}
+	void add_task(thread_task_t* t)
+	{
+		//TRACE("task added\n");
+		std::unique_lock<std::mutex> locker(m);
+		q.push_back(t);
+		cond.notify_all();
+	}
+};
+
+template <typename thread_task_t>
+struct thread_help
+{
+	typedef thread_queue_tt<thread_task_t> thread_queue_t;
+	static std::thread make_thread(thread_queue_t& queue,void* context=(void*)0)
+	{
+		return std::thread(proc, std::ref(queue), context);
+	}
+	static void proc(thread_queue_t& queue, void* thread_context)
+	{
+		while (1)
+		{
+			/// get a task and if no, wait
+			//TRACE("thread enter\n");
+			thread_task_t* task = 0;
+			{
+				//TRACE("encounter thread locker\n");
+				std::unique_lock<std::mutex> locker(queue.m);
+				//TRACE("enter thread locker\n");
+				while (queue.q.empty())
+				{
+					//TRACE("wait ============================= task being added");
+					queue.cond.wait(locker);
+					//TRACE("wait a task\n");
+				}
+				//TRACE("pop a task\n");
+				task = queue.q.front();
+				queue.q.pop_front();
+			}
+
+			/// do the task
+			/// during the last run, it will awake the caller thread in sleeping
+			bool b = task->run(thread_context);
+			(void)(b);
+		}
+	}
+};
+
+
+
+
 struct shared_fields
 {
     shared_fields()
@@ -160,27 +227,28 @@ struct shared_fields
 		_m_tasks_finished.notify_all();
 	}
 };
-using extract_feature_d = std::function<void*(void*)>;
-struct thread_task_t
+
+
+struct thread_group_task_t
 {
-    thread_task_t(
-        shared_fields* shared,
-        extract_feature_d const& extract_feature,
+	thread_group_task_t(
+        shared_fields& shared,
+		run_d const& run,
         void* param
         )
         : _m_shared_fields(shared)
-        , _m_extract_feature (extract_feature)
+        , _m_run(run)
         , _m_param(param)
     {
     }
-    ~thread_task_t()
+    ~thread_group_task_t()
     {
         //TRACE2("~~~~~~~ thread_task_t %p\n",this);
     }
 
     /// protect all the task fields for all the tasks
-    shared_fields* _m_shared_fields;
-    extract_feature_d _m_extract_feature;
+    shared_fields& _m_shared_fields;
+    run_d _m_run;
     void* _m_param;
 
     /// run in only threads
@@ -188,18 +256,18 @@ struct thread_task_t
     {
         //TRACE2("task to be running ....\n");
 
-        _m_extract_feature(_m_param);
+		_m_run(thread_context);
         {
             //TRACE2("000000000000\n");
             //std::unique_lock<std::mutex> locker(_mutex_task);
-            if (_m_shared_fields->dec() <= 0)
+            if (_m_shared_fields.dec() <= 0)
             {
                 /// this will be the last thread and task's item to deal with the task
                 /// there will be many thread calling this function, 
                 /// but only one have the priviliage to notify the caller thread,
                 /// namely just notify once by who are at run here
                 //TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-				_m_shared_fields->notify_all();
+				_m_shared_fields.notify_all();
                 TRACE2 (">>>>>>>>>---------notify all\n");
                 return true;
             }
@@ -209,72 +277,26 @@ struct thread_task_t
 };
 
 
+using group_help = thread_help<thread_group_task_t>;
+using group_queue_t = group_help::thread_queue_t;
 
-struct thread_queue_t
+
+struct case_extract
 {
-    std::mutex m;
-    std::condition_variable cond;
-    std::list<thread_task_t*> q;
-    void add_tasks(thread_task_t* t, size_t n)
-    {
-        //TRACE("tasks added\n");
-        std::unique_lock<std::mutex> locker(m);
-        for (size_t i = 0; i<n; i++)
-            q.push_back(t + i);
-        cond.notify_all();
-    }
-    void add_task(thread_task_t* t)
-    {
-        //TRACE("task added\n");
-        std::unique_lock<std::mutex> locker(m);
-        q.push_back(t);
-        cond.notify_all();
-    }
-};
+	using thread_task_t = thread_group_task_t;
+	using help = group_help;
+	using thread_queue_t = group_queue_t;
 
-struct thread_process
-{
-    static void proc(thread_queue_t& queue,void* thread_context)
-    {
-        while (1)
-        {
-            /// get a task and if no, wait
-            //TRACE("thread enter\n");
-            thread_task_t* task = 0;
-            {
-                //TRACE("encounter thread locker\n");
-                std::unique_lock<std::mutex> locker(queue.m);
-                //TRACE("enter thread locker\n");
-                while (queue.q.empty())
-                {
-                    //TRACE("wait ============================= task being added");
-                    queue.cond.wait(locker);
-                    //TRACE("wait a task\n");
-                }
-                //TRACE("pop a task\n");
-                task = queue.q.front();
-                queue.q.pop_front();
-            }
+	using get_queue_d = std::function<thread_queue_t&(size_t i)>;
 
-            /// do the task
-            /// during the last run, it will awake the caller thread in sleeping
-            bool b = task->run(thread_context);
-            (void)(b);
-        }
-    }
-};
-
-using get_next_queue_d = std::function<thread_queue_t&()>;
-struct concurrent_actions
-{
-    get_next_queue_d next_queue;
-
+    get_queue_d get_queue;
     shared_fields shared;
     std::vector<thread_task_t> tasks;
-    extract_feature_d extract_feature;
+    run_d extract_feature;
+	size_t _m_index = 0;
 
-	concurrent_actions(get_next_queue_d const& next,extract_feature_d const& extract,size_t const& task_reserve_count)
-        : next_queue(next)
+	case_extract(get_queue_d const& get, run_d const& extract,size_t const& task_reserve_count)
+        : get_queue(get)
         , extract_feature(extract) 
     {
         tasks.reserve(task_reserve_count);
@@ -282,7 +304,7 @@ struct concurrent_actions
 
     void add_task(void* param)
     {
-        tasks.emplace_back(&shared, extract_feature, param);
+        tasks.emplace_back(shared, extract_feature, param);
     }
     void add_done()
     {
@@ -291,9 +313,9 @@ struct concurrent_actions
         //auto begin = std::chrono::high_resolution_clock::now();
         /// with no image, return immediately
         shared.set_count(tasks.size());
-        for (auto i : tasks)
+        for (auto& i : tasks)
         {
-            thread_queue_t& queue = next_queue();
+            thread_queue_t& queue = get_queue(_m_index++);
             queue.add_task(&i);
         }
         //auto end = std::chrono::steady_clock::now();
