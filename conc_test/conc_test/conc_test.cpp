@@ -12,16 +12,14 @@ struct App
 		printf("%s\n", "extract");
 		return (void*)0;
 	}
-	std::thread _threads[1];
-	conc::group_queue_t queue[1];
+	using thread_pool = conc::thread_pool<conc::thread_group_task_t>;
+	thread_pool _m_pool;
+	//std::thread _threads[1];
+	//conc::group_queue_t queue[1];
 
 	void init()
 	{
-		_threads[0] = conc::group_help::make_thread(std::ref(queue[0]), (void*)0);
-	}
-	conc::group_queue_t& get_queue(size_t i)
-	{
-		return queue[i % (sizeof(queue) / sizeof(queue[0]))];
+		_m_pool.start(1,1);
 	}
 };
 
@@ -31,16 +29,15 @@ int main()
 	App app;
 	app.init();
 
-	case_extract::get_queue_d get = std::bind(&App::get_queue,&app,std::placeholders::_1);
-	void* extract_param = (void*)0;
+	//case_extract::get_queue_d get = std::bind(&App::get_queue,&app,std::placeholders::_1);
 	auto extract_lambda = [&](void* param, void*) {app.feature_extract(param); };
-	run_d extract = std::bind(extract_lambda,extract_param, std::placeholders::_1);
+	run_d extract = std::bind(extract_lambda, (void*)0, std::placeholders::_1);
 
-	case_extract actions(get,extract,1);
+	case_extract actions(app._m_pool,extract,1);
 	actions.add_task((void*)0);
 	actions.add_done();
 	actions.wait();
-	app._threads[0].join();
+	app._m_pool._m_threads.front().join();
     return 0;
 }
 

@@ -72,6 +72,7 @@ struct mutex_print
     printf(f,##__VA_ARGS__);\
     fflush(stdout); \
     } while (0)
+#define ERROR2 TRACE2
 
 /// the original codes simulated/spicy
 /// {{{
@@ -153,10 +154,46 @@ struct thread_queue_tt
 	}
 };
 
+using contextof_d = std::function<void*(size_t)>;
+using queueiof_d = std::function<size_t(size_t)>;
 template <typename thread_task_t>
-struct thread_help
+struct thread_pool
 {
 	typedef thread_queue_tt<thread_task_t> thread_queue_t;
+
+	thread_pool()
+	{
+		contextof = [](size_t) { return (void*)0; };
+		//queueiof = [](size_t)->size_t { return 0; };
+	}
+	contextof_d contextof;
+	//queueiof_d queueiof;
+	std::map<size_t,thread_queue_t*> _m_queues;
+	std::vector<std::thread> _m_threads;
+
+	thread_queue_t* queue(size_t gi) const
+	{
+		auto i = _m_queues.find(gi);
+		if (i == _m_queues.end())
+			return (thread_queue_t*)0;
+		return i->second;
+	}
+
+	void start(size_t thread_sum, size_t group_size)
+	{
+		size_t group_sum = thread_sum;
+		for (size_t i = 0; i < thread_sum; ++i)
+		{
+			size_t gi = i / group_size;
+			auto j = _m_queues.find(gi);
+			if (j == _m_queues.end())
+			{
+				_m_queues[gi] = new thread_queue_t;
+			}
+			thread_queue_t* queue = _m_queues[gi];
+			_m_threads.emplace_back(make_thread(*queue,contextof(i)));
+		}
+	}
 	static std::thread make_thread(thread_queue_t& queue,void* context=(void*)0)
 	{
 		return std::thread(proc, std::ref(queue), context);
@@ -277,26 +314,24 @@ struct thread_group_task_t
 };
 
 
-using group_help = thread_help<thread_group_task_t>;
-using group_queue_t = group_help::thread_queue_t;
-
-
 struct case_extract
 {
 	using thread_task_t = thread_group_task_t;
-	using help = group_help;
-	using thread_queue_t = group_queue_t;
+	using thread_pool = thread_pool<thread_group_task_t>;
+	using thread_queue_t = thread_pool::thread_queue_t;
 
-	using get_queue_d = std::function<thread_queue_t&(size_t i)>;
+	using get_queue_d = std::function<thread_queue_t*(size_t i)>;
 
-    get_queue_d get_queue;
+    //get_queue_d get_queue;
     shared_fields shared;
     std::vector<thread_task_t> tasks;
     run_d extract_feature;
 	size_t _m_index = 0;
+	thread_pool& _m_pool;
 
-	case_extract(get_queue_d const& get, run_d const& extract,size_t const& task_reserve_count)
-        : get_queue(get)
+	case_extract(thread_pool& pool,/*get_queue_d const& get,*/ run_d const& extract,size_t const& task_reserve_count)
+        : _m_pool(pool)
+		//, get_queue(get)
         , extract_feature(extract) 
     {
         tasks.reserve(task_reserve_count);
@@ -315,8 +350,13 @@ struct case_extract
         shared.set_count(tasks.size());
         for (auto& i : tasks)
         {
-            thread_queue_t& queue = get_queue(_m_index++);
-            queue.add_task(&i);
+            thread_queue_t* queue = _m_pool.queue(_m_index++);
+			if (!queue)
+			{
+				ERROR2("does not exist queue, belonging to first");
+				queue = _m_pool._m_queues.begin()->second;
+			}
+            queue->add_task(&i);
         }
         //auto end = std::chrono::steady_clock::now();
         //auto end = std::chrono::high_resolution_clock::now();

@@ -1,6 +1,6 @@
-.VC.db
-.VC.opendb
-.vs
-Debug/
-ipch/
-.vcxproj.filters
+*.VC.db
+*.VC.opendb
+*.vs
+*Debug/
+*ipch/
+*.vcxproj.filters
