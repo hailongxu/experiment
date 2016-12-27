@@ -16,320 +16,325 @@
 namespace conc
 {
 
-struct thid_help
-{
-    static std::string as_str(std::thread::id const& id)
-    {
-        std::stringstream ss;
-        ss << id;
-        return ss.str();
-    }
-    static std::string as_str()
-    {
-        return as_str(std::this_thread::get_id());
-    }
-};
+	struct thid_help
+	{
+		static std::string as_str(std::thread::id const& id)
+		{
+			std::stringstream ss;
+			ss << id;
+			return ss.str();
+		}
+		static std::string as_str()
+		{
+			return as_str(std::this_thread::get_id());
+		}
+	};
 
-struct thids_t
-{
-    std::map<std::thread::id, std::string> thids;
-    void add(std::thread::id const& id, char const* name)
-    {
-        printf("==== [%s] - [%s] \n", thid_help::as_str(id).c_str(), name);
-        thids[id] = name;
-    }
-    char const* label() const
-    {
-        auto i = thids.find(std::this_thread::get_id());
-        if (i!= thids.end())
-            return i->second.c_str();
-        return "********";
-    }
+	struct thids_t
+	{
+		std::map<std::thread::id, std::string> thids;
+		void add(std::thread::id const& id, char const* name)
+		{
+			printf("==== [%s] - [%s] \n", thid_help::as_str(id).c_str(), name);
+			thids[id] = name;
+		}
+		char const* label() const
+		{
+			auto i = thids.find(std::this_thread::get_id());
+			if (i != thids.end())
+				return i->second.c_str();
+			return "********";
+		}
 
-    static thids_t& instance()
-    {
-        static thids_t _s_thids;
-        return _s_thids;
-    }
-};
+		static thids_t& instance()
+		{
+			static thids_t _s_thids;
+			return _s_thids;
+		}
+	};
 
 
-struct mutex_print
-{
-    static std::mutex& m()
-    {
-        static std::mutex _g_mutex_print;
-        return _g_mutex_print;
-    }
-};
+	struct mutex_print
+	{
+		static std::mutex& m()
+		{
+			static std::mutex _g_mutex_print;
+			return _g_mutex_print;
+		}
+	};
 
 
 
 #define TRACE2(f,...) \
     do { /*break;*/ \
-    std::unique_lock<std::mutex> locker(mutex_print::m()); \
-    printf("[%6s] %s ",thid_help::as_str().c_str(),thids_t::instance().label()); \
+    std::unique_lock<std::mutex> locker(conc::mutex_print::m()); \
+    printf("[%6s] %s ",conc::thid_help::as_str().c_str(),conc::thids_t::instance().label()); \
     printf(f,##__VA_ARGS__);\
     fflush(stdout); \
     } while (0)
 #define ERROR2 TRACE2
 
-/// the original codes simulated/spicy
-/// {{{
+	/// the original codes simulated/spicy
+	/// {{{
 
-//using ImageItem = vis::ImageItem;
-//using IdlFaceRequest = vis::IdlFaceRequest;
-//using IdlFaceResponse = vis::IdlFaceResponse ;
-//using FeatureRequest = vis::FeatureRequest; 
-/*
-struct ImageItem
-{
-    std::string img;
-};
-
-struct IdlFaceRequest
-{
-    ~IdlFaceRequest()
-    {
-        TRACE ("~~~~IdlFaceRequest%p\n",this);
-    }
-    std::vector<ImageItem> _m_images;
-    size_t images_size() const
-    {
-        return _m_images.size();
-    }
-    ImageItem images(int i) const
-    {
-        return _m_images[i];
-    }
-};
-struct IdlFaceResponse
-{
-};
-
-struct FeatureRequest 
-{
-};
-*/
-//std::function<int(const uint64_t &logid,const FeatrueRequest& req_fea, std::string& res_fea)> get_feature_from_process;
-/*
-void get_feature_from_process(unsigned long long, FeatureRequest,std::string& res_fea)
-{
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-}
-void prepare_feature_request(FeatureRequest, ImageItem&)
-{
-}
-int multil_match(int, std::vector<std::string>& vec_fea, IdlFaceResponse& response)
-{
-    return 0;
-}
-*/
-
-//// }}}
-
-
-using run_d = std::function<void(void*)>;
-
-template <typename thread_task_t>
-struct thread_queue_tt
-{
-	std::mutex m;
-	std::condition_variable cond;
-	std::list<thread_task_t*> q;
-	void add_tasks(thread_task_t* t, size_t n)
+	//using ImageItem = vis::ImageItem;
+	//using IdlFaceRequest = vis::IdlFaceRequest;
+	//using IdlFaceResponse = vis::IdlFaceResponse ;
+	//using FeatureRequest = vis::FeatureRequest; 
+	/*
+	struct ImageItem
 	{
-		//TRACE("tasks added\n");
-		std::unique_lock<std::mutex> locker(m);
-		for (size_t i = 0; i<n; i++)
-			q.push_back(t + i);
-		cond.notify_all();
-	}
-	void add_task(thread_task_t* t)
-	{
-		//TRACE("task added\n");
-		std::unique_lock<std::mutex> locker(m);
-		q.push_back(t);
-		cond.notify_all();
-	}
-};
+		std::string img;
+	};
 
-using contextof_d = std::function<void*(size_t)>;
-using queueiof_d = std::function<size_t(size_t)>;
-template <typename thread_task_t>
-struct thread_pool
-{
-	typedef thread_queue_tt<thread_task_t> thread_queue_t;
-
-	thread_pool()
+	struct IdlFaceRequest
 	{
-		contextof = [](size_t) { return (void*)0; };
-		//queueiof = [](size_t)->size_t { return 0; };
-	}
-	contextof_d contextof;
-	//queueiof_d queueiof;
-	std::map<size_t,thread_queue_t*> _m_queues;
-	std::vector<std::thread> _m_threads;
-
-	thread_queue_t* queue(size_t gi) const
-	{
-		auto i = _m_queues.find(gi);
-		if (i == _m_queues.end())
-			return (thread_queue_t*)0;
-		return i->second;
-	}
-
-	void start(size_t thread_sum, size_t group_size)
-	{
-		size_t group_sum = thread_sum;
-		for (size_t i = 0; i < thread_sum; ++i)
+		~IdlFaceRequest()
 		{
-			size_t gi = i / group_size;
-			auto j = _m_queues.find(gi);
-			if (j == _m_queues.end())
-			{
-				_m_queues[gi] = new thread_queue_t;
-			}
-			thread_queue_t* queue = _m_queues[gi];
-			_m_threads.emplace_back(make_thread(*queue,contextof(i)));
+			TRACE ("~~~~IdlFaceRequest%p\n",this);
 		}
-	}
-	static std::thread make_thread(thread_queue_t& queue,void* context=(void*)0)
-	{
-		return std::thread(proc, std::ref(queue), context);
-	}
-	static void proc(thread_queue_t& queue, void* thread_context)
-	{
-		while (1)
+		std::vector<ImageItem> _m_images;
+		size_t images_size() const
 		{
-			/// get a task and if no, wait
-			//TRACE("thread enter\n");
-			thread_task_t* task = 0;
+			return _m_images.size();
+		}
+		ImageItem images(int i) const
+		{
+			return _m_images[i];
+		}
+	};
+	struct IdlFaceResponse
+	{
+	};
+
+	struct FeatureRequest
+	{
+	};
+	*/
+	//std::function<int(const uint64_t &logid,const FeatrueRequest& req_fea, std::string& res_fea)> get_feature_from_process;
+	/*
+	void get_feature_from_process(unsigned long long, FeatureRequest,std::string& res_fea)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	}
+	void prepare_feature_request(FeatureRequest, ImageItem&)
+	{
+	}
+	int multil_match(int, std::vector<std::string>& vec_fea, IdlFaceResponse& response)
+	{
+		return 0;
+	}
+	*/
+
+	//// }}}
+
+
+	using run_d = std::function<void(void*)>;
+
+	template <typename thread_task_t>
+	struct thread_queue_tt
+	{
+		std::mutex m;
+		std::condition_variable cond;
+		std::list<thread_task_t*> q;
+		void add_tasks(thread_task_t* t, size_t n)
+		{
+			//TRACE("tasks added\n");
+			std::unique_lock<std::mutex> locker(m);
+			for (size_t i = 0; i < n; i++)
+				q.push_back(t + i);
+			cond.notify_all();
+		}
+		void add_task(thread_task_t* t)
+		{
+			//TRACE("task added\n");
+			std::unique_lock<std::mutex> locker(m);
+			q.push_back(t);
+			cond.notify_all();
+		}
+	};
+
+	using contextof_d = std::function<void*(size_t)>;
+	using queueiof_d = std::function<size_t(size_t)>;
+	template <typename thread_task_t>
+	struct thread_pool
+	{
+		typedef thread_queue_tt<thread_task_t> thread_queue_t;
+
+		thread_pool()
+		{
+			contextof = [](size_t) { return (void*)0; };
+			//queueiof = [](size_t)->size_t { return 0; };
+		}
+		contextof_d contextof;
+		//queueiof_d queueiof;
+		std::map<size_t, thread_queue_t*> _m_queues;
+		std::vector<std::thread> _m_threads;
+
+		thread_queue_t* queue(size_t gi) const
+		{
+			auto i = _m_queues.find(gi);
+			if (i == _m_queues.end())
+				return (thread_queue_t*)0;
+			return i->second;
+		}
+
+		void start(size_t thread_sum, size_t group_size)
+		{
+			size_t group_sum = thread_sum;
+			for (size_t i = 0; i < thread_sum; ++i)
 			{
-				//TRACE("encounter thread locker\n");
-				std::unique_lock<std::mutex> locker(queue.m);
-				//TRACE("enter thread locker\n");
-				while (queue.q.empty())
+				size_t gi = i / group_size;
+				auto j = _m_queues.find(gi);
+				if (j == _m_queues.end())
 				{
-					//TRACE("wait ============================= task being added");
-					queue.cond.wait(locker);
-					//TRACE("wait a task\n");
+					_m_queues[gi] = new thread_queue_t;
 				}
-				//TRACE("pop a task\n");
-				task = queue.q.front();
-				queue.q.pop_front();
+				thread_queue_t* queue = _m_queues[gi];
+				_m_threads.emplace_back(make_thread(*queue, contextof(i)));
 			}
-
-			/// do the task
-			/// during the last run, it will awake the caller thread in sleeping
-			bool b = task->run(thread_context);
-			(void)(b);
 		}
-	}
-};
+		static std::thread make_thread(thread_queue_t& queue, void* context = (void*)0)
+		{
+			return std::thread(proc, std::ref(queue), context);
+		}
+		static void proc(thread_queue_t& queue, void* thread_context)
+		{
+			while (1)
+			{
+				/// get a task and if no, wait
+				//TRACE("thread enter\n");
+				thread_task_t* task = 0;
+				{
+					//TRACE("encounter thread locker\n");
+					std::unique_lock<std::mutex> locker(queue.m);
+					//TRACE("enter thread locker\n");
+					while (queue.q.empty())
+					{
+						//TRACE("wait ============================= task being added");
+						queue.cond.wait(locker);
+						//TRACE("wait a task\n");
+					}
+					//TRACE("pop a task\n");
+					task = queue.q.front();
+					queue.q.pop_front();
+				}
+
+				/// do the task
+				/// during the last run, it will awake the caller thread in sleeping
+				bool b = task->run(thread_context);
+				(void)(b);
+			}
+		}
+	};
 
 
 
 
-struct shared_fields
-{
-    shared_fields()
-        : _m_count(0)
-    {
-    }
-	~shared_fields()
+	struct shared_fields
 	{
-		TRACE2("~~~~~");
-	}
-    std::mutex _mutex_task;
-    std::condition_variable _m_tasks_finished;
-	std::atomic_long _m_count;
-    void wait()
-    {
-		TRACE2("waiting...");
-        std::unique_lock<std::mutex> locker(_mutex_task);
-        _m_tasks_finished.wait(locker);
-		TRACE2("waited. done");
-    }
-    void set_count(size_t const& count)
-    {
-        _m_count = count;
-    }
-    int dec()
-    {
-        return --_m_count;
-    }
-	void notify_all()
+		shared_fields()
+			: _m_count(0)
+		{
+		}
+		~shared_fields()
+		{
+			TRACE2("~~~~~");
+		}
+		std::mutex _mutex_task;
+		std::condition_variable _m_tasks_finished;
+		std::atomic_long _m_count;
+		void wait()
+		{
+			TRACE2("waiting...");
+			std::unique_lock<std::mutex> locker(_mutex_task);
+			_m_tasks_finished.wait(locker);
+			TRACE2("waited. done");
+		}
+		void set_count(size_t const& count)
+		{
+			_m_count = count;
+		}
+		int dec()
+		{
+			return --_m_count;
+		}
+		void notify_all()
+		{
+			_m_tasks_finished.notify_all();
+		}
+	};
+
+
+	struct thread_group_task_t
 	{
-		_m_tasks_finished.notify_all();
-	}
-};
+		thread_group_task_t(
+			shared_fields& shared,
+			run_d const& run,
+			void* param
+		)
+			: _m_shared_fields(shared)
+			, _m_run(run)
+			, _m_param(param)
+		{
+		}
+		~thread_group_task_t()
+		{
+			//TRACE2("~~~~~~~ thread_task_t %p\n",this);
+		}
+
+		/// protect all the task fields for all the tasks
+		shared_fields& _m_shared_fields;
+		run_d _m_run;
+		void* _m_param;
+
+		/// run in only threads
+		bool run(void* thread_context)
+		{
+			//TRACE2("task to be running ....\n");
+
+			_m_run(thread_context);
+			{
+				//TRACE2("000000000000\n");
+				//std::unique_lock<std::mutex> locker(_mutex_task);
+				if (_m_shared_fields.dec() <= 0)
+				{
+					/// this will be the last thread and task's item to deal with the task
+					/// there will be many thread calling this function, 
+					/// but only one have the priviliage to notify the caller thread,
+					/// namely just notify once by who are at run here
+					//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+					_m_shared_fields.notify_all();
+					TRACE2(">>>>>>>>>---------notify all\n");
+					return true;
+				}
+			}
+			return false;
+		}
+	};
+
+} // endof  conc
 
 
-struct thread_group_task_t
+namespace app
 {
-	thread_group_task_t(
-        shared_fields& shared,
-		run_d const& run,
-        void* param
-        )
-        : _m_shared_fields(shared)
-        , _m_run(run)
-        , _m_param(param)
-    {
-    }
-    ~thread_group_task_t()
-    {
-        //TRACE2("~~~~~~~ thread_task_t %p\n",this);
-    }
-
-    /// protect all the task fields for all the tasks
-    shared_fields& _m_shared_fields;
-    run_d _m_run;
-    void* _m_param;
-
-    /// run in only threads
-    bool run(void* thread_context)
-    {
-        //TRACE2("task to be running ....\n");
-
-		_m_run(thread_context);
-        {
-            //TRACE2("000000000000\n");
-            //std::unique_lock<std::mutex> locker(_mutex_task);
-            if (_m_shared_fields.dec() <= 0)
-            {
-                /// this will be the last thread and task's item to deal with the task
-                /// there will be many thread calling this function, 
-                /// but only one have the priviliage to notify the caller thread,
-                /// namely just notify once by who are at run here
-                //TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-				_m_shared_fields.notify_all();
-                TRACE2 (">>>>>>>>>---------notify all\n");
-                return true;
-            }
-        }
-        return false;
-    }
-};
-
 
 struct case_extract
 {
-	using thread_task_t = thread_group_task_t;
-	using thread_pool = thread_pool<thread_group_task_t>;
+	using thread_task_t = conc::thread_group_task_t;
+	using thread_pool = conc::thread_pool<thread_task_t>;
 	using thread_queue_t = thread_pool::thread_queue_t;
 
 	using get_queue_d = std::function<thread_queue_t*(size_t i)>;
 
     //get_queue_d get_queue;
-    shared_fields shared;
+    conc::shared_fields shared;
     std::vector<thread_task_t> tasks;
-    run_d extract_feature;
+    conc::run_d extract_feature;
 	size_t _m_index = 0;
 	thread_pool& _m_pool;
 
-	case_extract(thread_pool& pool,/*get_queue_d const& get,*/ run_d const& extract,size_t const& task_reserve_count)
+	case_extract(thread_pool& pool,/*get_queue_d const& get,*/ conc::run_d const& extract,size_t const& task_reserve_count)
         : _m_pool(pool)
 		//, get_queue(get)
         , extract_feature(extract) 

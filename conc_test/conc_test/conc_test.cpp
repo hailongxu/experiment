@@ -14,8 +14,6 @@ struct App
 	}
 	using thread_pool = conc::thread_pool<conc::thread_group_task_t>;
 	thread_pool _m_pool;
-	//std::thread _threads[1];
-	//conc::group_queue_t queue[1];
 
 	void init()
 	{
@@ -33,7 +31,7 @@ int main()
 	auto extract_lambda = [&](void* param, void*) {app.feature_extract(param); };
 	run_d extract = std::bind(extract_lambda, (void*)0, std::placeholders::_1);
 
-	case_extract actions(app._m_pool,extract,1);
+	app::case_extract actions(app._m_pool,extract,1);
 	actions.add_task((void*)0);
 	actions.add_done();
 	actions.wait();
