@@ -9,6 +9,7 @@
 #include <sstream>
 #include <chrono>
 #include <atomic>
+#include <assert.h>
 
 #ifndef APP_SEARCH_VIS_VISARCH_FEATURES_CONCURRENT_H
 #define APP_SEARCH_VIS_VISARCH_FEATURES_CONCURRENT_H
@@ -164,10 +165,17 @@ namespace conc
 		thread_pool()
 		{
 			contextof = [](size_t) { return (void*)0; };
-			//queueiof = [](size_t)->size_t { return 0; };
+			queueiof = [](size_t)->size_t { return 0; };
+		}
+		~thread_pool()
+		{
+			for (auto& i : _m_queues)
+			{
+				delete i.second;
+			}
 		}
 		contextof_d contextof;
-		//queueiof_d queueiof;
+		queueiof_d queueiof;
 		std::map<size_t, thread_queue_t*> _m_queues;
 		std::vector<std::thread> _m_threads;
 
@@ -178,13 +186,22 @@ namespace conc
 				return (thread_queue_t*)0;
 			return i->second;
 		}
-
-		void start(size_t thread_sum, size_t group_size)
+		void join()
 		{
-			size_t group_sum = thread_sum;
-			for (size_t i = 0; i < thread_sum; ++i)
+			for (auto& i : _m_threads)
 			{
-				size_t gi = i / group_size;
+				i.join();
+			}
+		}
+		void init(size_t thread_sum)
+		{
+			_m_threads.reserve(thread_sum);
+		}
+		void start(queueiof_d const& qidof)
+		{
+			for (size_t i = 0; i < _m_threads.capacity(); ++i)
+			{
+				size_t gi = qidof(i);
 				auto j = _m_queues.find(gi);
 				if (j == _m_queues.end())
 				{
@@ -193,6 +210,11 @@ namespace conc
 				thread_queue_t* queue = _m_queues[gi];
 				_m_threads.emplace_back(make_thread(*queue, contextof(i)));
 			}
+		}
+		void start(size_t thread_sum, size_t group_size)
+		{
+			queueiof = [&](size_t thno)->size_t { return thno/group_size; };
+			start(queueiof);
 		}
 		static std::thread make_thread(thread_queue_t& queue, void* context = (void*)0)
 		{
@@ -327,16 +349,14 @@ struct case_extract
 
 	using get_queue_d = std::function<thread_queue_t*(size_t i)>;
 
-    //get_queue_d get_queue;
     conc::shared_fields shared;
     std::vector<thread_task_t> tasks;
     conc::run_d extract_feature;
 	size_t _m_index = 0;
 	thread_pool& _m_pool;
 
-	case_extract(thread_pool& pool,/*get_queue_d const& get,*/ conc::run_d const& extract,size_t const& task_reserve_count)
+	case_extract(thread_pool& pool,conc::run_d const& extract,size_t const& task_reserve_count)
         : _m_pool(pool)
-		//, get_queue(get)
         , extract_feature(extract) 
     {
         tasks.reserve(task_reserve_count);
@@ -359,7 +379,8 @@ struct case_extract
 			if (!queue)
 			{
 				ERROR2("does not exist queue, belonging to first");
-				queue = _m_pool._m_queues.begin()->second;
+				queue = _m_pool.queue(0);
+				assert(queue);
 			}
             queue->add_task(&i);
         }
