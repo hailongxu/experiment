@@ -12,19 +12,19 @@ struct App
 {
 	void* feature_extract(void* p)
 	{
-		printf("extract [%p] 3s ...",p);
-		std::this_thread::sleep_for(std::chrono::seconds(3));
-		printf("extract [%p] 3s ... DONE",p);
+		printf("extract [%p] 2s ...\n",p);
+		std::this_thread::sleep_for(std::chrono::seconds(2));
+		printf("extract [%p] 2s ... DONE\n",p);
 		
 		return (void*)0;
 	}
-	using thread_pool = conc::thread_pool<conc::thread_group_task_t>;
+	using thread_pool = conc::thread_pool<conc::group_task_sync_exit_t>;
 	thread_pool _m_pool;
 
 	void init()
 	{
-		_m_pool.init(1);
-		_m_pool.start(2,1);
+		_m_pool.init(2);
+		_m_pool.start(1);
 	}
 };
 
@@ -50,6 +50,8 @@ int main()
 	actions.add_done();
 	actions.wait();
 	app._m_pool.join();
+	printf("pool finished\n");
+	getchar();
     return 0;
 }
 
