@@ -238,7 +238,7 @@ namespace conc
 		static void proc(thread_queue_t& queue,size_t poolthid, void* thread_context)
 		{
 			TRACE2("thread id poolthid:[%d] sys:[%s] started\n", poolthid, thid_help::as_str().c_str());
-			while (1)
+			while (true)
 			{
 				/// get a task and if no, wait
 				//TRACE("thread enter\n");
