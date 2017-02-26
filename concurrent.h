@@ -13,8 +13,8 @@
 //#include <sysconf.h> /// get cpu count
 
 
-#ifndef APP_SEARCH_VIS_VISARCH_FEATURES_CONCURRENT_H
-#define APP_SEARCH_VIS_VISARCH_FEATURES_CONCURRENT_H
+#ifndef APP__CONCURRENT_H
+#define APP__CONCURRENT_H
 
 namespace conc
 {
@@ -141,11 +141,27 @@ namespace conc
 		}
 	};
 
-	using run_d = std::function<void(void*)>;
 
-	template <typename thread_task_t>
-	struct thread_queue_tt
+	struct Task
 	{
+		virtual void run(void*) = 0;
+		virtual void destroy() = 0;
+	};
+
+	struct ExitTask: Task
+	{
+		virtual void run(void*) {}
+		virtual void destroy() {}
+		static ExitTask* instance()
+		{
+			static ExitTask exit_task;
+			return &exit_task;
+		}
+	};
+
+	struct ThreadQueue
+	{
+		using thread_task_t = Task;
 		std::mutex m;
 		std::condition_variable cond;
 		std::list<thread_task_t*> q;
@@ -166,23 +182,27 @@ namespace conc
 		}
 		void add_exit_task()
 		{
-			add_task((thread_task_t*)(0));
+			add_task(ExitTask::instance());
+		}
+		void add_exit_task(size_t n)
+		{
+			add_tasks(ExitTask::instance(),n);
 		}
 	};
 
 	using contextof_d = std::function<void*(size_t)>;
-	using queueiof_d = std::function<size_t(size_t)>;
-	template <typename thread_task_t>
-	struct thread_pool
-	{
-		typedef thread_queue_tt<thread_task_t> thread_queue_t;
+	using qidof_d = std::function<size_t(size_t)>;
 
-		thread_pool()
+	struct ThreadPool
+	{
+		using thread_task_t = Task;
+
+		ThreadPool()
 		{
 			contextof = [](size_t) { return (void*)0; };
-			queueiof = [](size_t)->size_t { return 0; };
+			qidof = [](size_t)->size_t { return 0; };
 		}
-		~thread_pool()
+		~ThreadPool()
 		{
 			for (auto& i : queues)
 			{
@@ -190,52 +210,58 @@ namespace conc
 			}
 		}
 		contextof_d contextof;
-		queueiof_d queueiof;
-		std::map<size_t, thread_queue_t*> queues;
-		std::vector<std::thread> _m_threads;
+		qidof_d qidof;
+		std::map<size_t, ThreadQueue*> queues;
+		std::vector<std::thread> threads;
 
-		thread_queue_t* queue(size_t gi) const
+		ThreadQueue* queuebythno(size_t thno) const
+		{
+			size_t gi = qidof(thno);
+			return queue(gi);
+		}
+		ThreadQueue* queue(size_t gi) const
 		{
 			auto i = queues.find(gi);
 			if (i == queues.end())
-				return (thread_queue_t*)0;
+				return (ThreadQueue*)0;
 			return i->second;
 		}
 		void join()
 		{
-			for (auto& i : _m_threads)
+			for (auto& i : threads)
 			{
 				i.join();
 			}
 		}
-		void init(size_t thread_sum)
+		void init(size_t thread_sum, qidof_d const& qidof)
 		{
-			_m_threads.reserve(thread_sum);
+			threads.reserve(thread_sum);
+			this->qidof = qidof;
 		}
-		void start(queueiof_d const& qidof)
+		void init(size_t thread_sum, size_t group_size)
 		{
-			for (size_t i = 0; i < _m_threads.capacity(); ++i)
+			qidof = [=](size_t thno)->size_t { return thno/group_size; };
+			init(thread_sum, qidof);
+		}
+		void start()
+		{
+			for (size_t i = 0; i < threads.capacity(); ++i)
 			{
 				size_t gi = qidof(i);
 				auto j = queues.find(gi);
 				if (j == queues.end())
 				{
-					queues[gi] = new thread_queue_t;
+					queues[gi] = new ThreadQueue;
 				}
-				thread_queue_t* queue = queues[gi];
-				_m_threads.emplace_back(make_thread(*queue,i,contextof(i)));
+				ThreadQueue* queue = queues[gi];
+				threads.emplace_back(make_thread(*queue,i,contextof(i)));
 			}
 		}
-		void start(size_t group_size)
-		{
-			queueiof = [&](size_t thno)->size_t { return thno/group_size; };
-			start(queueiof);
-		}
-		static std::thread make_thread(thread_queue_t& queue, size_t poolthid,void* context = (void*)0)
+		static std::thread make_thread(ThreadQueue& queue, size_t poolthid,void* context = (void*)0)
 		{
 			return std::thread(proc, std::ref(queue), poolthid, context);
 		}
-		static void proc(thread_queue_t& queue,size_t poolthid, void* thread_context)
+		static void proc(ThreadQueue& queue,size_t poolthid, void* thread_context)
 		{
 			TRACE2("thread id poolthid:[%d] sys:[%s] started\n", poolthid, thid_help::as_str().c_str());
 			while (true)
@@ -260,25 +286,29 @@ namespace conc
 
 				/// do the task
 				/// during the last run, it will awake the caller thread in sleeping
-				if (!task)
+				if (task == ExitTask::instance())
+				{
+					TRACE2("thread id poolthid:[%d] sys:[%s] is exiting \n", poolthid, thid_help::as_str().c_str());
 					break;
-				bool b = task->run(thread_context);
-				(void)(b);
+				}
+				task->run(thread_context);
+				task->destroy();
 			}
-			TRACE2("thread id poolthid:[%d] sys:[%s] exit\n", poolthid,thid_help::as_str().c_str());
+			TRACE2("thread id poolthid:[%d] sys:[%s] exited\n", poolthid,thid_help::as_str().c_str());
 		}
 	};
 
 
+	using run_d = std::function<void(void* thread_context)>;
 
 
-	struct shared_fields
+	struct SharedFields
 	{
-		shared_fields()
+		SharedFields()
 			: _m_count(0)
 		{
 		}
-		~shared_fields()
+		~SharedFields()
 		{
 			TRACE2("~~~~~");
 		}
@@ -307,10 +337,10 @@ namespace conc
 	};
 
 
-	struct group_task_sync_exit_t
+	struct SyncTask: Task
 	{
-		group_task_sync_exit_t(
-			shared_fields& shared,
+		SyncTask(
+			SharedFields& shared,
 			run_d const& run,
 			void* param
 		)
@@ -319,18 +349,22 @@ namespace conc
 			, _m_param(param)
 		{
 		}
-		~group_task_sync_exit_t()
+		~SyncTask()
 		{
 			//TRACE2("~~~~~~~ thread_task_t %p\n",this);
 		}
 
 		/// protect all the task fields for all the tasks
-		shared_fields& _m_shared_fields;
+		SharedFields& _m_shared_fields;
 		run_d _m_run;
 		void* _m_param;
 
+		virtual void destroy()
+		{
+			/// nothing
+		}
 		/// run in only threads
-		bool run(void* thread_context)
+		virtual void run(void* thread_context)
 		{
 			//TRACE2("task to be running ....\n");
 
@@ -347,81 +381,73 @@ namespace conc
 					//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
 					_m_shared_fields.notify_all();
 					TRACE2(">>>>>>>>>---------notify all\n");
-					return true;
+					//return true;
 				}
 			}
-			return false;
+			//return false;
+		}
+	};
+
+	struct CaseSyncTasks
+	{
+		conc::SharedFields shared;
+		std::vector<conc::SyncTask> tasks;
+		conc::run_d run;
+		size_t _m_index = 0;
+		conc::ThreadPool& pool;
+
+		CaseSyncTasks(conc::ThreadPool& pool,conc::run_d const& run,size_t const& task_reserve_count)
+			: pool(pool)
+			, run(run)
+		{
+			tasks.reserve(task_reserve_count);
+		}
+
+		void add_exit()
+		{
+			size_t n = pool.threads.size();
+			for (size_t i = 0; i < n; ++i)
+			{
+				pool.queuebythno(i)->add_exit_task();
+			}
+		}
+		void add_task(void* param)
+		{
+			tasks.emplace_back(shared, run, param);
+		}
+		void add_done()
+		{
+			//TRACE("IdlFaceProcessor::match\n");
+			//auto begin = std::chrono::steady_clock::now();
+			//auto begin = std::chrono::high_resolution_clock::now();
+			/// with no image, return immediately
+			size_t qsize = pool.queues.size();
+			shared.set_count(tasks.size());
+			for (auto& i : tasks)
+			{
+				ThreadQueue* queue = pool.queue(_m_index++%qsize);
+				if (!queue)
+				{
+					ERROR2("does not exist queue:%d, belonging to first\n", (_m_index-1));
+					queue = pool.queue(0);
+					assert(queue);
+				}
+				queue->add_task(&i);
+			}
+			//auto end = std::chrono::steady_clock::now();
+			//auto end = std::chrono::high_resolution_clock::now();
+			//std::chrono::duration<double, std::milli> diff = end - begin;
+			//std::chrono::duration_cast<std::chrono::milliseconds> (count)
+			//TRACE("======>%lf", diff.count());
+		}
+		void wait()
+		{
+			shared.wait();
+			//TRACE(">>>>>>>>>>>> --------- received finished flag\n");
 		}
 	};
 
 } // endof  conc
 
-
-namespace app
-{
-
-using thread_task_t = conc::group_task_sync_exit_t;
-using thread_pool = conc::thread_pool<thread_task_t>;
-using thread_queue_t = thread_pool::thread_queue_t;
-
-struct case_extract
-{
-    conc::shared_fields shared;
-    std::vector<thread_task_t> tasks;
-    conc::run_d extract_feature;
-	size_t _m_index = 0;
-	thread_pool& _m_pool;
-
-	case_extract(thread_pool& pool,conc::run_d const& extract,size_t const& task_reserve_count)
-        : _m_pool(pool)
-        , extract_feature(extract) 
-    {
-        tasks.reserve(task_reserve_count);
-    }
-
-	void add_exit()
-	{
-		for (auto& i: _m_pool.queues)
-		{
-			i.second->add_exit_task();
-		}
-	}
-    void add_task(void* param)
-    {
-        tasks.emplace_back(shared, extract_feature, param);
-    }
-    void add_done()
-    {
-        //TRACE("IdlFaceProcessor::match\n");
-        //auto begin = std::chrono::steady_clock::now();
-        //auto begin = std::chrono::high_resolution_clock::now();
-        /// with no image, return immediately
-		size_t qsize = _m_pool.queues.size();
-        shared.set_count(tasks.size());
-        for (auto& i : tasks)
-        {
-            thread_queue_t* queue = _m_pool.queue(_m_index++%qsize);
-			if (!queue)
-			{
-				ERROR2("does not exist queue:%d, belonging to first\n", (_m_index-1));
-				queue = _m_pool.queue(0);
-				assert(queue);
-			}
-            queue->add_task(&i);
-        }
-        //auto end = std::chrono::steady_clock::now();
-        //auto end = std::chrono::high_resolution_clock::now();
-        //std::chrono::duration<double, std::milli> diff = end - begin;
-        //std::chrono::duration_cast<std::chrono::milliseconds> (count)
-        //TRACE("======>%lf", diff.count());
-    }
-    void wait()
-    {
-		shared.wait();
-        //TRACE(">>>>>>>>>>>> --------- received finished flag\n");
-    }
-};
-
-} /// end of namespace
 
 #endif
