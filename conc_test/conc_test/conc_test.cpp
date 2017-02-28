@@ -19,18 +19,18 @@ struct App
 		
 		return (void*)0;
 	}
-	conc::ThreadPool _m_pool;
+	conc::ThreadPool pool;
 
 	void init()
 	{
-		_m_pool.init(2,2);
-		_m_pool.start();
+		pool.init(2,2);
+		pool.start();
 	}
 };
 
 void map_test()
 {
-	int a = ceil(4.0);
+	int a = (int)ceil(4.0);
 	using T = std::map<std::string, std::string>;
 	T m;
 	std::string key, value;
@@ -56,8 +56,28 @@ void map_test()
 	auto tt2 = std::chrono::system_clock::now();
 	unsigned long long kk1 = std::chrono::duration_cast<std::chrono::milliseconds>(tt1.time_since_epoch()).count();
 	unsigned long long kk2 = std::chrono::duration_cast<std::chrono::milliseconds>(tt2.time_since_epoch()).count();
-	TRACE2("match time cost: %u", size_t(kk2 - kk1));
+	TRACE2("match time cost: %llu", size_t(kk2 - kk1));
 }
+
+
+struct AA
+{
+	AA()
+	{
+		printf("AA(%d),%p\n",i,this);
+	}
+	AA(AA const& a)
+	{
+		i = a.i;
+		printf("AA((%d)),%p\n", i,this);
+	}
+	int i = 9;
+	~AA()
+	{
+		i--;
+		printf("~AA(%d),%p\n",i,this);
+	}
+};
 
 
 void what()
@@ -66,27 +86,35 @@ void what()
 	std::string str((std::istreambuf_iterator<char>(t)),
 		std::istreambuf_iterator<char>());
 }
-
+ 
 
 int main()
 {
+	{
+		std::function<void()> uu;
+		{
+			AA b;
+			auto f = [](AA const& a) {
+				printf("%d,%d",a.i,b.i);
+			};
+			uu = std::bind(f, AA());
+			int j = 9;
+		}
+		uu();
+	}
+
+	return 9;
+
 	using namespace conc;
 	App app;
 	app.init();
 
-	//case_extract::get_queue_d get = std::bind(&App::get_queue,&app,std::placeholders::_1);
-	auto extract_lambda = [&](void* param, void*) {app.feature_extract(param); };
-	run_d extract = std::bind(extract_lambda, (void*)0, std::placeholders::_1);
-
-	conc::CaseSyncTasks actions(app._m_pool,extract,1);
-	actions.add_task((void*)0);
-	actions.add_task((void*)1);
-	actions.add_task((void*)2);
-	actions.add_task((void*)3);
+	conc::CaseSyncTasks actions(app.pool);
+	actions.add_task(std::bind(&App::feature_extract,&app,(void*)0));
 	actions.add_done();
-	actions.add_exit();
 	actions.wait();
-	app._m_pool.join();
+	actions.add_exit();
+	app.pool.join();
 	printf("pool finished\n");
 	getchar();
     return 0;

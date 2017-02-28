@@ -263,7 +263,7 @@ namespace conc
 		}
 		static void proc(ThreadQueue& queue,size_t poolthid, void* thread_context)
 		{
-			TRACE2("thread id poolthid:[%d] sys:[%s] started\n", poolthid, thid_help::as_str().c_str());
+			TRACE2("thread id poolthid:[%llu] sys:[%s] started\n", poolthid, thid_help::as_str().c_str());
 			while (true)
 			{
 				/// get a task and if no, wait
@@ -288,18 +288,18 @@ namespace conc
 				/// during the last run, it will awake the caller thread in sleeping
 				if (task == ExitTask::instance())
 				{
-					TRACE2("thread id poolthid:[%d] sys:[%s] is exiting \n", poolthid, thid_help::as_str().c_str());
+					TRACE2("thread id poolthid:[%lld] sys:[%s] is exiting \n", poolthid, thid_help::as_str().c_str());
 					break;
 				}
 				task->run(thread_context);
 				task->destroy();
 			}
-			TRACE2("thread id poolthid:[%d] sys:[%s] exited\n", poolthid,thid_help::as_str().c_str());
+			TRACE2("thread id poolthid:[%lld] sys:[%s] exited\n", poolthid,thid_help::as_str().c_str());
 		}
 	};
 
 
-	using run_d = std::function<void(void* thread_context)>;
+	using run_d = std::function<void(void* thread_context,void* method_context)>;
 
 
 	struct SharedFields
@@ -324,7 +324,7 @@ namespace conc
 		}
 		void set_count(size_t const& count)
 		{
-			_m_count = count;
+			_m_count = (long)count;
 		}
 		int dec()
 		{
@@ -346,7 +346,7 @@ namespace conc
 		)
 			: _m_shared_fields(shared)
 			, _m_run(run)
-			, _m_param(param)
+			, _m_method_context(param)
 		{
 		}
 		~SyncTask()
@@ -357,7 +357,8 @@ namespace conc
 		/// protect all the task fields for all the tasks
 		SharedFields& _m_shared_fields;
 		run_d _m_run;
-		void* _m_param;
+		void* _m_method_context;
+
 
 		virtual void destroy()
 		{
@@ -368,7 +369,7 @@ namespace conc
 		{
 			//TRACE2("task to be running ....\n");
 
-			_m_run(thread_context);
+			_m_run(thread_context, _m_method_context);
 			{
 				//TRACE2("000000000000\n");
 				//std::unique_lock<std::mutex> locker(_mutex_task);
@@ -392,13 +393,11 @@ namespace conc
 	{
 		conc::SharedFields shared;
 		std::vector<conc::SyncTask> tasks;
-		conc::run_d run;
 		size_t _m_index = 0;
 		conc::ThreadPool& pool;
 
-		CaseSyncTasks(conc::ThreadPool& pool,conc::run_d const& run,size_t const& task_reserve_count)
+		CaseSyncTasks(conc::ThreadPool& pool,size_t const& task_reserve_count=0)
 			: pool(pool)
-			, run(run)
 		{
 			tasks.reserve(task_reserve_count);
 		}
@@ -411,9 +410,11 @@ namespace conc
 				pool.queuebythno(i)->add_exit_task();
 			}
 		}
-		void add_task(void* param)
+		template <typename bnd>
+		void add_task(bnd const& bn)
 		{
-			tasks.emplace_back(shared, run, param);
+			auto lamb = [=](void*,void*) {bn();};
+			tasks.emplace_back(shared, lamb, (void*)(0));
 		}
 		void add_done()
 		{
@@ -428,7 +429,7 @@ namespace conc
 				ThreadQueue* queue = pool.queue(_m_index++%qsize);
 				if (!queue)
 				{
-					ERROR2("does not exist queue:%d, belonging to first\n", (_m_index-1));
+					ERROR2("does not exist queue:%d, belonging to first\n", (int)(_m_index-1));
 					queue = pool.queue(0);
 					assert(queue);
 				}
