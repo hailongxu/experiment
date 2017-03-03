@@ -11,6 +11,7 @@
 #include <atomic>
 #include <assert.h>
 //#include <sysconf.h> /// get cpu count
+#include "trace.h"
 
 
 #ifndef APP__CONCURRENT_H
@@ -18,119 +19,6 @@
 
 namespace conc
 {
-
-	struct thid_help
-	{
-		static std::string as_str(std::thread::id const& id)
-		{
-			std::stringstream ss;
-			ss << id;
-			return ss.str();
-		}
-		static std::string as_str()
-		{
-			return as_str(std::this_thread::get_id());
-		}
-	};
-
-	struct thids_t
-	{
-		std::map<std::thread::id, std::string> thids;
-		void add(std::thread::id const& id, char const* name)
-		{
-			printf("==== [%s] - [%s] \n", thid_help::as_str(id).c_str(), name);
-			thids[id] = name;
-		}
-		char const* label() const
-		{
-			auto i = thids.find(std::this_thread::get_id());
-			if (i != thids.end())
-				return i->second.c_str();
-			return "********";
-		}
-
-		static thids_t& instance()
-		{
-			static thids_t _s_thids;
-			return _s_thids;
-		}
-	};
-
-
-	struct mutex_print
-	{
-		static std::mutex& m()
-		{
-			static std::mutex _g_mutex_print;
-			return _g_mutex_print;
-		}
-	};
-
-
-
-#define TRACE2(f,...) \
-    do { /*break;*/ \
-    std::unique_lock<std::mutex> locker(conc::mutex_print::m()); \
-    printf("[%6s] %s ",conc::thid_help::as_str().c_str(),conc::thids_t::instance().label()); \
-    printf(f,##__VA_ARGS__);\
-    fflush(stdout); \
-    } while (0)
-#define ERROR2 TRACE2
-
-	/// the original codes simulated/spicy
-	/// {{{
-
-	//using ImageItem = vis::ImageItem;
-	//using IdlFaceRequest = vis::IdlFaceRequest;
-	//using IdlFaceResponse = vis::IdlFaceResponse ;
-	//using FeatureRequest = vis::FeatureRequest; 
-	/*
-	struct ImageItem
-	{
-		std::string img;
-	};
-
-	struct IdlFaceRequest
-	{
-		~IdlFaceRequest()
-		{
-			TRACE ("~~~~IdlFaceRequest%p\n",this);
-		}
-		std::vector<ImageItem> _m_images;
-		size_t images_size() const
-		{
-			return _m_images.size();
-		}
-		ImageItem images(int i) const
-		{
-			return _m_images[i];
-		}
-	};
-	struct IdlFaceResponse
-	{
-	};
-
-	struct FeatureRequest
-	{
-	};
-	*/
-	//std::function<int(const uint64_t &logid,const FeatrueRequest& req_fea, std::string& res_fea)> get_feature_from_process;
-	/*
-	void get_feature_from_process(unsigned long long, FeatureRequest,std::string& res_fea)
-	{
-		std::this_thread::sleep_for(std::chrono::milliseconds(500));
-	}
-	void prepare_feature_request(FeatureRequest, ImageItem&)
-	{
-	}
-	int multil_match(int, std::vector<std::string>& vec_fea, IdlFaceResponse& response)
-	{
-		return 0;
-	}
-	*/
-
-	//// }}}
-
 	struct sys_help
 	{
 		static unsigned int core_count()
@@ -140,7 +28,6 @@ namespace conc
 			return count;
 		}
 	};
-
 
 	struct Task
 	{
@@ -263,7 +150,7 @@ namespace conc
 		}
 		static void proc(ThreadQueue& queue,size_t poolthid, void* thread_context)
 		{
-			TRACE2("thread id poolthid:[%llu] sys:[%s] started\n", poolthid, thid_help::as_str().c_str());
+			TRACE2("thread id poolthid:[%llu] sys:[%s] started\n", poolthid, dbg::thid_help::as_str().c_str());
 			while (true)
 			{
 				/// get a task and if no, wait
@@ -288,13 +175,13 @@ namespace conc
 				/// during the last run, it will awake the caller thread in sleeping
 				if (task == ExitTask::instance())
 				{
-					TRACE2("thread id poolthid:[%lld] sys:[%s] is exiting \n", poolthid, thid_help::as_str().c_str());
+					TRACE2("thread id poolthid:[%lld] sys:[%s] is exiting \n", poolthid, dbg::thid_help::as_str().c_str());
 					break;
 				}
 				task->run(thread_context);
 				task->destroy();
 			}
-			TRACE2("thread id poolthid:[%lld] sys:[%s] exited\n", poolthid,thid_help::as_str().c_str());
+			TRACE2("thread id poolthid:[%lld] sys:[%s] exited\n", poolthid,dbg::thid_help::as_str().c_str());
 		}
 	};
 
