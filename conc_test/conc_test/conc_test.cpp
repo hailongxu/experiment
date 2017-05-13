@@ -29,7 +29,7 @@ struct App
 
     void init()
     {
-        pool.init(1,1);
+        pool.init(1);
         pool.start();
     }
 };
@@ -52,49 +52,15 @@ void app_test()
 }
 
 
-struct YourTask : conc::Task
-{
-    static YourTask* make()
-    {
-        return new YourTask;
-    }
-    virtual void run(void*)
-    {
-        static int i = 0;
-        printf("task begin [%d] 2s ...\n",i++);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        printf("task end [%d] 2s ... DONE\n",i++);
-    }
-    virtual void destroy()
-    {
-        delete this;
-    }
-};
-struct ThreadTest
-{
-    conc::ThreadPool pool;
-    void init()
-    {
-        pool.init(1, 1);
-        pool.start();
-    }
-    void add_task(YourTask* task)
-    {
-        pool.queuebythno(0)->add_task(task);
-    }
-    void add_exit()
-    {
-        pool.queuebythno(0)->add_exit_task();
-    }
-};
+
 void thread_test()
 {
-    ThreadTest thread;
-    thread.init();
-    thread.add_task(YourTask::make());
-    thread.add_task(YourTask::make());
-    thread.add_exit();
-    thread.pool.join();
+    conc::ThreadPool pool(1);
+    pool.start();
+    conc::CaseAsyncTasks op(pool);
+    op.add_task([]() {printf("xxxxxxxx\n"); });
+    pool.add_exit_all();
+    pool.join();
     printf("***** all done!");
 }
 
@@ -239,13 +205,13 @@ void split_test()
 
 int main()
 {
+    thread_test();
+    getchar();
+    return 0;
     app_test();
     getchar();
     return 0;
     lambda_test();
-    return 0;
-    thread_test();
-    getchar();
     return 0;
     split_test();
     return 0;

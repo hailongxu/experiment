@@ -93,6 +93,11 @@ namespace conc
 			contextof = [](size_t) { return (void*)0; };
 			qidof = [](size_t)->size_t { return 0; };
 		}
+        ThreadPool(size_t thread_sum, size_t group_size = 1)
+            : ThreadPool()
+        {
+            init(thread_sum, group_size);
+        }
 		~ThreadPool()
 		{
 			for (auto& i : queues)
@@ -136,7 +141,7 @@ namespace conc
 			threads.reserve(thread_sum);
 			this->qidof = qidof;
 		}
-		void init(size_t thread_sum, size_t group_size)
+		void init(size_t thread_sum, size_t group_size=1)
 		{
 			qidof = [=](size_t thno)->size_t { return thno/group_size; };
 			init(thread_sum, qidof);
@@ -195,10 +200,6 @@ namespace conc
 			TRACE2("thread id poolthid:[%lld] sys:[%s] exited\n", poolthid,dbg::thid_help::as_str().c_str());
 		}
 	};
-
-
-	//using run_d = std::function<void(void* thread_context,void* method_context)>;
-
 
 	struct SharedFields
 	{
@@ -475,6 +476,47 @@ namespace conc
 			//TRACE(">>>>>>>>>>>> --------- received finished flag\n");
 		}
 	};
+
+    template <typename OF>
+    struct AsyncTask : conc::Task
+    {
+        OF runf;
+        AsyncTask(OF const& of)
+            : runf(of)
+        {}
+        virtual void run(void*)
+        {
+            runf();
+        }
+        virtual void destroy()
+        {
+            delete this;
+        }
+    };
+
+    template <typename OF>
+    static inline AsyncTask<OF>* make_async_task(OF const& of)
+    {
+        return new (std::nothrow) AsyncTask<OF>(of);
+    }
+
+    struct CaseAsyncTasks
+    {
+        ThreadPool& pool;
+        CaseAsyncTasks(ThreadPool& pool)
+            : pool(pool)
+        {}
+        template <typename OF>
+        void add_task(AsyncTask<OF>* task)
+        {
+            pool.queuebythno(0)->add_task(task);
+        }
+        template <typename OF>
+        void add_task(OF const& of)
+        {
+            add_task(make_async_task(of));
+        }
+    };
 
 } // endof  conc
 
