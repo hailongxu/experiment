@@ -27,6 +27,10 @@ namespace conc
 			//count = sysconf(_SC_NPROCESSORS_CONF);
 			return count;
 		}
+        static void bind_cpu()
+        {
+            //thread_id = pthread_self();
+        }
 	};
 
 	struct Task
@@ -120,6 +124,13 @@ namespace conc
 				i.join();
 			}
 		}
+        void add_exit_all()
+        {
+            for (auto& q : queues)
+            {
+                q.second->add_exit_task();
+            }
+        }
 		void init(size_t thread_sum, qidof_d const& qidof)
 		{
 			threads.reserve(thread_sum);
@@ -186,7 +197,7 @@ namespace conc
 	};
 
 
-	using run_d = std::function<void(void* thread_context,void* method_context)>;
+	//using run_d = std::function<void(void* thread_context,void* method_context)>;
 
 
 	struct SharedFields
@@ -223,29 +234,20 @@ namespace conc
 		}
 	};
 
-
+    template <typename OF,char c=0>
 	struct SyncTask: Task
 	{
-		SyncTask(
-			SharedFields& shared,
-			run_d const& run,
-			void* param
-		)
-			: _m_shared_fields(shared)
-			, _m_run(run)
-			, _m_method_context(param)
+        /// protect all the task fields for all the tasks
+        SharedFields* _m_shared_fields = 0;
+        OF _m_run;
+
+		SyncTask(OF const& run): _m_run(run)
 		{
 		}
 		~SyncTask()
 		{
 			//TRACE2("~~~~~~~ thread_task_t %p\n",this);
 		}
-
-		/// protect all the task fields for all the tasks
-		SharedFields& _m_shared_fields;
-		run_d _m_run;
-		void* _m_method_context;
-
 
 		virtual void destroy()
 		{
@@ -255,19 +257,19 @@ namespace conc
 		virtual void run(void* thread_context)
 		{
 			//TRACE2("task to be running ....\n");
-
-			_m_run(thread_context, _m_method_context);
+			_m_run();
 			{
 				//TRACE2("000000000000\n");
 				//std::unique_lock<std::mutex> locker(_mutex_task);
-				if (_m_shared_fields.dec() <= 0)
+                assert(_m_shared_fields);
+				if (_m_shared_fields->dec() <= 0)
 				{
 					/// this will be the last thread and task's item to deal with the task
 					/// there will be many thread calling this function, 
 					/// but only one have the priviliage to notify the caller thread,
 					/// namely just notify once by who are at run here
 					//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-					_m_shared_fields.notify_all();
+					_m_shared_fields->notify_all();
 					TRACE2(">>>>>>>>>---------notify all\n");
 					//return true;
 				}
@@ -275,35 +277,174 @@ namespace conc
 			//return false;
 		}
 	};
+    /// with metthod context
+    template <typename OF>
+	struct SyncTask<OF,'.'>: Task
+	{
+        /// protect all the task fields for all the tasks
+        SharedFields* _m_shared_fields = 0;
+        void* _m_method_context = 0;
+        OF _m_run;
+
+		SyncTask(OF const& run,void* context)
+            : _m_run(run) ,_m_method_context(context)
+		{
+		}
+		~SyncTask()
+		{
+			//TRACE2("~~~~~~~ thread_task_t %p\n",this);
+		}
+		virtual void destroy()
+		{
+			/// nothing
+		}
+		/// run in only threads
+		virtual void run(void* thread_context)
+		{
+			//TRACE2("task to be running ....\n");
+			_m_run(_m_method_context);
+			{
+				//TRACE2("000000000000\n");
+				//std::unique_lock<std::mutex> locker(_mutex_task);
+                assert(_m_shared_fields);
+				if (_m_shared_fields->dec() <= 0)
+				{
+					/// this will be the last thread and task's item to deal with the task
+					/// there will be many thread calling this function, 
+					/// but only one have the priviliage to notify the caller thread,
+					/// namely just notify once by who are at run here
+					//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+					_m_shared_fields->notify_all();
+					TRACE2(">>>>>>>>>---------notify all\n");
+				}
+			}
+		}
+	};
+
+ //   /// with thread context
+ //   template <typename OF>
+	//struct SyncTask<OF,'~'>: Task
+	//{
+ //       /// protect all the task fields for all the tasks
+ //       SharedFields* _m_shared_fields = 0;
+ //       OF _m_run;
+
+	//	SyncTask(OF const& run)
+ //           : _m_run(run)
+	//	{
+	//	}
+	//	~SyncTask()
+	//	{
+	//		//TRACE2("~~~~~~~ thread_task_t %p\n",this);
+	//	}
+
+	//	virtual void destroy()
+	//	{
+	//		/// nothing
+	//	}
+	//	/// run in only threads
+	//	virtual void run(void* thread_context)
+	//	{
+	//		//TRACE2("task to be running ....\n");
+
+	//		_m_run(thread_context);
+	//		{
+	//			//TRACE2("000000000000\n");
+	//			//std::unique_lock<std::mutex> locker(_mutex_task);
+ //               assert(_m_shared_fields);
+	//			if (_m_shared_fields->dec() <= 0)
+	//			{
+	//				/// this will be the last thread and task's item to deal with the task
+	//				/// there will be many thread calling this function, 
+	//				/// but only one have the priviliage to notify the caller thread,
+	//				/// namely just notify once by who are at run here
+	//				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+	//				_m_shared_fields->notify_all();
+	//				TRACE2(">>>>>>>>>---------notify all\n");
+	//				//return true;
+	//			}
+	//		}
+	//		//return false;
+	//	}
+	//};
+ //   /// with thread and metthod context
+ //   template <typename OF>
+	//struct SyncTask<OF,'~'+'.'>: Task
+	//{
+ //       /// protect all the task fields for all the tasks
+ //       SharedFields* _m_shared_fields = 0;
+ //       void* _m_method_context = 0;
+ //       OF _m_run;
+
+	//	SyncTask(OF const& run,void* context)
+ //           : _m_run(run)
+ //           , _m_method_context(context)
+	//	{
+	//	}
+	//	~SyncTask()
+	//	{
+	//		//TRACE2("~~~~~~~ thread_task_t %p\n",this);
+	//	}
+
+	//	virtual void destroy()
+	//	{
+	//		/// nothing
+	//	}
+	//	/// run in only threads
+	//	virtual void run(void* thread_context)
+	//	{
+	//		//TRACE2("task to be running ....\n");
+
+	//		_m_run(thread_context, _m_method_context);
+	//		{
+	//			//TRACE2("000000000000\n");
+	//			//std::unique_lock<std::mutex> locker(_mutex_task);
+ //               assert(_m_shared_fields);
+	//			if (_m_shared_fields->dec() <= 0)
+	//			{
+	//				/// this will be the last thread and task's item to deal with the task
+	//				/// there will be many thread calling this function, 
+	//				/// but only one have the priviliage to notify the caller thread,
+	//				/// namely just notify once by who are at run here
+	//				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+	//				_m_shared_fields->notify_all();
+	//				TRACE2(">>>>>>>>>---------notify all\n");
+	//				//return true;
+	//			}
+	//		}
+	//		//return false;
+	//	}
+	//};
+
+    template <typename OF>
+    static inline SyncTask<OF,0> make_sync_task(OF const& of)
+    {
+        return SyncTask<OF,0>(of);
+    }
+    template <char c,typename OF>
+    static SyncTask<OF,c> make_sync_task(OF const& of,void* context)
+    {
+        return SyncTask<OF,c>(of, context);
+    }
 
 	struct CaseSyncTasks
 	{
 		conc::SharedFields shared;
-		std::vector<conc::SyncTask> tasks;
+		std::vector<conc::Task*> tasks;
 		size_t _m_index = 0;
-		conc::ThreadPool& pool;
-
-		CaseSyncTasks(conc::ThreadPool& pool,size_t const& task_reserve_count=0)
-			: pool(pool)
+		
+		CaseSyncTasks(size_t const& task_reserve_count=0)
 		{
 			tasks.reserve(task_reserve_count);
 		}
 
-		void add_exit()
+		template <typename OF,char c>
+		void add_task(SyncTask<OF,c>& task)
 		{
-			size_t n = pool.threads.size();
-			for (size_t i = 0; i < n; ++i)
-			{
-				pool.queuebythno(i)->add_exit_task();
-			}
+            task._m_shared_fields = &shared;
+			tasks.emplace_back(&task);
 		}
-		template <typename bnd>
-		void add_task(bnd const& bn)
-		{
-			auto lamb = [=](void*,void*) {bn();};
-			tasks.emplace_back(shared, lamb, (void*)(0));
-		}
-		void add_done()
+		void add_done(conc::ThreadPool& pool)
 		{
 			//TRACE("IdlFaceProcessor::match\n");
 			//auto begin = std::chrono::steady_clock::now();
@@ -320,7 +461,7 @@ namespace conc
 					queue = pool.queue(0);
 					assert(queue);
 				}
-				queue->add_task(&i);
+				queue->add_task(i);
 			}
 			//auto end = std::chrono::steady_clock::now();
 			//auto end = std::chrono::high_resolution_clock::now();

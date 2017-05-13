@@ -9,18 +9,33 @@
 
 struct cast
 {
+    using group = std::vector<int>;
+    using part = std::tuple<group const*, int, int>;
+    using range = std::vector<part>;
     static void test()
     {
-        std::map<int, std::vector<int>> a{ { 1,{ 1,2,3,4 } },{ 2,{ 5,6,7 } } };
-        std::vector<std::vector<std::tuple<void*, int, int>>> out;
+        std::map<int, group> a{
+            { 1,{ 1,2,3,4 } },
+            { 2,{ 5,6,7 } },
+            { 3,{ 8,9,10,11 } },
+        };
+        std::vector<range> out;
         map(a, out);
+        for (auto& v : out)
+        {
+            printf("-------------\n");
+            for (auto i : v)
+            {
+                printf("%p %d %d \n",std::get<0>(i),std::get<1>(i),std::get<2>(i));
+            }
+        }
     }
-    static void map(std::map<int, std::vector<int>> const& a, std::vector<std::vector<std::tuple<void*, int, int>>>& out)
+    static void map(std::map<int,group> const& a, std::vector<range>& out)
     {
         static const int size_unit = 3;
         int sized = 0; /// for size_unit
-        std::vector<std::tuple<void*, int, int>> vec;
-        for (auto i : a)
+        range vec;
+        for (auto& i : a)
         {
             int len = i.second.size();
             int j = 0; /// for vector<int>
