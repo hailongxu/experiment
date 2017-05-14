@@ -263,19 +263,16 @@ namespace conc
 				//TRACE2("000000000000\n");
 				//std::unique_lock<std::mutex> locker(_mutex_task);
                 assert(_m_shared_fields);
-				if (_m_shared_fields->dec() <= 0)
-				{
-					/// this will be the last thread and task's item to deal with the task
-					/// there will be many thread calling this function, 
-					/// but only one have the priviliage to notify the caller thread,
-					/// namely just notify once by who are at run here
-					//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-					_m_shared_fields->notify_all();
-					TRACE2(">>>>>>>>>---------notify all\n");
-					//return true;
-				}
+                if (_m_shared_fields->dec() > 0)
+                    return;
+				/// this will be the last thread and task's item to deal with the task
+				/// there will be many thread calling this function, 
+				/// but only one have the priviliage to notify the caller thread,
+				/// namely just notify once by who are at run here
+				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+				_m_shared_fields->notify_all();
+				TRACE2(">>>>>>>>>---------notify all\n");
 			}
-			//return false;
 		}
 	};
     /// with metthod context
@@ -308,114 +305,105 @@ namespace conc
 				//TRACE2("000000000000\n");
 				//std::unique_lock<std::mutex> locker(_mutex_task);
                 assert(_m_shared_fields);
-				if (_m_shared_fields->dec() <= 0)
-				{
-					/// this will be the last thread and task's item to deal with the task
-					/// there will be many thread calling this function, 
-					/// but only one have the priviliage to notify the caller thread,
-					/// namely just notify once by who are at run here
-					//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-					_m_shared_fields->notify_all();
-					TRACE2(">>>>>>>>>---------notify all\n");
-				}
+                if (_m_shared_fields->dec() > 0)
+                    return;
+				/// this will be the last thread and task's item to deal with the task
+				/// there will be many thread calling this function, 
+				/// but only one have the priviliage to notify the caller thread,
+				/// namely just notify once by who are at run here
+				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+				_m_shared_fields->notify_all();
+				TRACE2(">>>>>>>>>---------notify all\n");
 			}
 		}
 	};
 
- //   /// with thread context
- //   template <typename OF>
-	//struct SyncTask<OF,'~'>: Task
-	//{
- //       /// protect all the task fields for all the tasks
- //       SharedFields* _m_shared_fields = 0;
- //       OF _m_run;
+    /// with thread context
+    template <typename OF>
+	struct SyncTask<OF,'~'>: Task
+	{
+        /// protect all the task fields for all the tasks
+        SharedFields* _m_shared_fields = 0;
+        OF _m_run;
 
-	//	SyncTask(OF const& run)
- //           : _m_run(run)
-	//	{
-	//	}
-	//	~SyncTask()
-	//	{
-	//		//TRACE2("~~~~~~~ thread_task_t %p\n",this);
-	//	}
+		SyncTask(OF const& run)
+            : _m_run(run)
+		{}
+		~SyncTask()
+		{
+			//TRACE2("~~~~~~~ thread_task_t %p\n",this);
+		}
 
-	//	virtual void destroy()
-	//	{
-	//		/// nothing
-	//	}
-	//	/// run in only threads
-	//	virtual void run(void* thread_context)
-	//	{
-	//		//TRACE2("task to be running ....\n");
+		virtual void destroy()
+		{
+			/// nothing
+		}
+		/// run in only threads
+		virtual void run(void* thread_context)
+		{
+			//TRACE2("task to be running ....\n");
+			_m_run(thread_context);
+			{
+				//TRACE2("000000000000\n");
+				//std::unique_lock<std::mutex> locker(_mutex_task);
+                assert(_m_shared_fields);
+                if (_m_shared_fields->dec() > 0)
+                    return;
+				/// this will be the last thread and task's item to deal with the task
+				/// there will be many thread calling this function, 
+				/// but only one have the priviliage to notify the caller thread,
+				/// namely just notify once by who are at run here
+				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+				_m_shared_fields->notify_all();
+				TRACE2(">>>>>>>>>---------notify all\n");
+			}
+		}
+	};
 
-	//		_m_run(thread_context);
-	//		{
-	//			//TRACE2("000000000000\n");
-	//			//std::unique_lock<std::mutex> locker(_mutex_task);
- //               assert(_m_shared_fields);
-	//			if (_m_shared_fields->dec() <= 0)
-	//			{
-	//				/// this will be the last thread and task's item to deal with the task
-	//				/// there will be many thread calling this function, 
-	//				/// but only one have the priviliage to notify the caller thread,
-	//				/// namely just notify once by who are at run here
-	//				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-	//				_m_shared_fields->notify_all();
-	//				TRACE2(">>>>>>>>>---------notify all\n");
-	//				//return true;
-	//			}
-	//		}
-	//		//return false;
-	//	}
-	//};
- //   /// with thread and metthod context
- //   template <typename OF>
-	//struct SyncTask<OF,'~'+'.'>: Task
-	//{
- //       /// protect all the task fields for all the tasks
- //       SharedFields* _m_shared_fields = 0;
- //       void* _m_method_context = 0;
- //       OF _m_run;
+    /// with thread and metthod context
+    template <typename OF>
+	struct SyncTask<OF,'~'+'.'>: Task
+	{
+        /// protect all the task fields for all the tasks
+        SharedFields* _m_shared_fields = 0;
+        void* _m_method_context = 0;
+        OF _m_run;
 
-	//	SyncTask(OF const& run,void* context)
- //           : _m_run(run)
- //           , _m_method_context(context)
-	//	{
-	//	}
-	//	~SyncTask()
-	//	{
-	//		//TRACE2("~~~~~~~ thread_task_t %p\n",this);
-	//	}
+		SyncTask(OF const& run,void* context)
+            : _m_run(run)
+            , _m_method_context(context)
+		{
+		}
+		~SyncTask()
+		{
+			//TRACE2("~~~~~~~ thread_task_t %p\n",this);
+		}
 
-	//	virtual void destroy()
-	//	{
-	//		/// nothing
-	//	}
-	//	/// run in only threads
-	//	virtual void run(void* thread_context)
-	//	{
-	//		//TRACE2("task to be running ....\n");
-
-	//		_m_run(thread_context, _m_method_context);
-	//		{
-	//			//TRACE2("000000000000\n");
-	//			//std::unique_lock<std::mutex> locker(_mutex_task);
- //               assert(_m_shared_fields);
-	//			if (_m_shared_fields->dec() <= 0)
-	//			{
-	//				/// this will be the last thread and task's item to deal with the task
-	//				/// there will be many thread calling this function, 
-	//				/// but only one have the priviliage to notify the caller thread,
-	//				/// namely just notify once by who are at run here
-	//				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
-	//				_m_shared_fields->notify_all();
-	//				TRACE2(">>>>>>>>>---------notify all\n");
-	//				//return true;
-	//			}
-	//		}
-	//		//return false;
-	//	}
-	//};
+		virtual void destroy()
+		{
+			/// nothing
+		}
+		/// run in only threads
+		virtual void run(void* thread_context)
+		{
+			//TRACE2("task to be running ....\n");
+			_m_run(thread_context, _m_method_context);
+			{
+				//TRACE2("000000000000\n");
+				//std::unique_lock<std::mutex> locker(_mutex_task);
+                assert(_m_shared_fields);
+                if (_m_shared_fields->dec() > 0)
+                    return;
+				/// this will be the last thread and task's item to deal with the task
+				/// there will be many thread calling this function, 
+				/// but only one have the priviliage to notify the caller thread,
+				/// namely just notify once by who are at run here
+				//TRACE2 ("all sub taskes finished >>>>>>>>>>>>>>>>>>>>> notify ...\n");
+				_m_shared_fields->notify_all();
+				TRACE2(">>>>>>>>>---------notify all\n");
+			}
+		}
+	};
 
     template <typename OF>
     static inline SyncTask<OF,0> make_sync_task(OF const& of)
