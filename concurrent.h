@@ -71,6 +71,21 @@ namespace conc
 			q.push_back(t);
 			cond.notify_all();
 		}
+		size_t size()
+		{
+			std::unique_lock<std::mutex> locker(m);
+			return q.size();
+		}
+		void clear()
+		{
+			std::unique_lock<std::mutex> locker(m);
+			while (q.empty())
+			{
+				Task* task = q.front();
+				q.pop_front();
+				task->destroy();
+			}
+		}
 		void add_exit_task()
 		{
 			add_task(ExitTask::instance());
@@ -166,7 +181,7 @@ namespace conc
 		}
 		static void proc(ThreadQueue& queue,size_t poolthid, void* thread_context)
 		{
-			TRACE2("thread id poolthid:[%llu] sys:[%s] started\n", poolthid, dbg::thid_help::as_str().c_str());
+			TRACE2("thread id poolthid:[%u] sys:[%s] started\n", poolthid, dbg::thid_help::as_str().c_str());
 			while (true)
 			{
 				/// get a task and if no, wait
@@ -235,7 +250,7 @@ namespace conc
 		}
 	};
 
-    template <typename OF,char c=0>
+    template <typename OF,int c=0>
 	struct SyncTask: Task
 	{
         /// protect all the task fields for all the tasks
@@ -494,6 +509,14 @@ namespace conc
         CaseAsyncTasks(ThreadPool& pool)
             : pool(pool)
         {}
+        size_t size()
+        {
+        	return pool.queuebythno(0)->size();
+        }
+        void clear()
+        {
+        	pool.queuebythno(0)->clear();
+        }
         template <typename OF>
         void add_task(AsyncTask<OF>* task)
         {
